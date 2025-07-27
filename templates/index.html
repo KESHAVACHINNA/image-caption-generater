@@ -2,37 +2,100 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>All-in-One Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Image Caption Generator</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f4f4f4;
-      text-align: center;
+    * {
+      font-family: 'Inter', sans-serif;
       margin: 0;
-      padding: 40px;
+      padding: 0;
+      box-sizing: border-box;
     }
+
+    body {
+      background: #f4f6f8;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    .container {
+      background: #fff;
+      padding: 2rem 3rem;
+      border-radius: 16px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+      max-width: 500px;
+      width: 100%;
+      text-align: center;
+    }
+
     h1 {
+      margin-bottom: 1rem;
+      font-weight: 600;
       color: #333;
     }
-    p {
-      font-size: 18px;
+
+    form {
+      margin-top: 1rem;
     }
-    .button {
-      background-color: #4CAF50;
+
+    input[type="file"] {
+      margin: 1rem 0;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    button {
+      background: #4f46e5;
       color: white;
-      padding: 12px 20px;
-      text-decoration: none;
-      border-radius: 5px;
-      font-size: 16px;
+      padding: 0.75rem 1.5rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #4338ca;
+    }
+
+    .caption {
+      margin-top: 2rem;
+      font-size: 1.1rem;
+      color: #111827;
+      background: #e0e7ff;
+      padding: 1rem;
+      border-radius: 12px;
+    }
+
+    .preview {
+      margin-top: 1.5rem;
+    }
+
+    img {
+      max-width: 100%;
+      border-radius: 12px;
+      margin-top: 1rem;
     }
   </style>
 </head>
 <body>
-  <h1>🧠 All-in-One Utility Dashboard</h1>
-  <p>Launch your Streamlit app by running:</p>
-  <pre><code>streamlit run app.py</code></pre>
-  <br>
-  <a href="https://streamlit.io" class="button">Learn more about Streamlit</a>
+  <div class="container">
+    <h1>🖼️ Image Caption Generator</h1>
+    <form action="/caption" method="POST" enctype="multipart/form-data">
+      <input type="file" name="image" accept="image/*" required />
+      <button type="submit">Generate Caption</button>
+    </form>
+
+    {% if caption %}
+      <div class="caption">
+        <strong>Generated Caption:</strong><br />
+        {{ caption }}
+      </div>
+    {% endif %}
+  </div>
 </body>
 </html>
