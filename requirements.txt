@@ -6,6 +6,7 @@ numpy
 plotly
 opencv-python
 fpdf
+flask
 transformers
 Pillow
 wordcloud
