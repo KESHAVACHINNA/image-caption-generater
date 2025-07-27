@@ -1,1 +1,0 @@
-delete index.html
