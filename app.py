@@ -1,28 +1,35 @@
 import streamlit as st
 from PIL import Image
-import requests
+from transformers import BlipProcessor, BlipForConditionalGeneration
+import torch
 
-HF_API_TOKEN = "YOUR_HF_API_TOKEN"
-
+# Set page config
 st.set_page_config(page_title="Image Caption Generator", layout="centered")
-st.title("🖼️ Image Caption Generator (HuggingFace API)")
 
-uploaded_file = st.file_uploader("Upload an image", type=["jpg", "png", "jpeg"])
+# App title
+st.title("🖼️ Image Caption Generator")
+st.markdown("Upload an image and let AI describe it!")
+
+# Load model and processor
+@st.cache_resource
+def load_model():
+    processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
+    model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
+    return processor, model
+
+processor, model = load_model()
+
+# Upload image
+uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
+
 if uploaded_file:
-    image = Image.open(uploaded_file).convert("RGB")
+    image = Image.open(uploaded_file).convert('RGB')
     st.image(image, caption="Uploaded Image", use_column_width=True)
 
-    if st.button("Generate Caption"):
+    if st.button("✨ Generate Caption"):
         with st.spinner("Generating caption..."):
-            img_bytes = uploaded_file.getvalue()
-            response = requests.post(
-                "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base",
-                headers={"Authorization": f"Bearer {HF_API_TOKEN}"},
-                data=img_bytes,
-            )
-            if response.status_code == 200:
-                caption = response.json()[0]["generated_text"]
-                st.success("Caption:")
-                st.write(caption)
-            else:
-                st.error(f"Error: {response.status_code} - {response.json()}")
+            inputs = processor(images=image, return_tensors="pt")
+            out = model.generate(**inputs)
+            caption = processor.decode(out[0], skip_special_tokens=True)
+            st.success("**Generated Caption:**")
+            st.markdown(f"> {caption}")
