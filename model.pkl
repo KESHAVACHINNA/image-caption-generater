@@ -1,10 +1,10 @@
-
 import os
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, Text, StringVar
 from PIL import Image, ImageTk
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import seaborn as sns
 import plotly.express as px
 import cv2
@@ -14,45 +14,523 @@ from wordcloud import WordCloud
 from transformers import BlipProcessor, BlipForConditionalGeneration
 import qrcode
 import praw
+import torch # Added for checking device availability
 
-# ---- Global Variables ----
-logo_path = None
-weather_api_key = '3434037233ac86f7ad772ec6f5892e4a'
-reddit = praw.Reddit(client_id='XklaFB2839fVxoJ7jrOlIQ',
-                     client_secret='WyTB6nDQUvrEB0KiDnw-eOTMqzMZcg',
-                     user_agent='my_bot_v1_pristine123')
+# --- Configuration (Consider moving to a separate config file or environment variables) ---
+# For a real application, store these securely, e.g., in environment variables.
+# import os
+# WEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY', 'YOUR_OPENWEATHER_API_KEY_HERE')
+# REDDIT_CLIENT_ID = os.getenv('REDDIT_CLIENT_ID', 'YOUR_REDDIT_CLIENT_ID_HERE')
+# REDDIT_CLIENT_SECRET = os.getenv('REDDIT_CLIENT_SECRET', 'YOUR_REDDIT_CLIENT_SECRET_HERE')
 
-# ---- App Window ----
-root = tk.Tk()
-root.title("All-In-One Python Utility App")
-root.geometry("800x600")
-tabs = ttk.Notebook(root)
-tabs.pack(expand=1, fill="both")
+# Using placeholders for demonstration:
+WEATHER_API_KEY = '3434037233ac86f7ad772ec6f5892e4a' # Replace with your actual key
+REDDIT_CLIENT_ID = 'XklaFB2839fVxoJ7jrOlIQ' # Replace with your actual client ID
+REDDIT_CLIENT_SECRET = 'WyTB6nDQUvrEB0KiDnw-eOTMqzMZcg' # Replace with your actual client secret
 
-# === 1. Data Visualization Tab ===
-frame1 = ttk.Frame(tabs)
-tabs.add(frame1, text="📊 Data Visualization")
+# Initialize PRAW (Reddit API wrapper)
+try:
+    reddit = praw.Reddit(
+        client_id=REDDIT_CLIENT_ID,
+        client_secret=REDDIT_CLIENT_SECRET,
+        user_agent='my_bot_v1_pristine123' # Use a unique and descriptive user agent
+    )
+    # Test connection (optional, for debugging)
+    # print("Reddit instance created successfully.")
+except Exception as e:
+    messagebox.showerror("Reddit API Error", f"Failed to initialize Reddit API: {e}\n"
+                                          "Please check your client ID, client secret, and internet connection.")
+    reddit = None # Set to None if initialization fails
 
-def plot_graphs():
-    data = {
-        "Month": ["January", "February", "March", "April", "May", "June"],
-        "Sales": [200, 220, 250, 280, 300, 320],
-        "Profit": [50, 70, 80, 90, 100, 110],
-        "Customer_Count": [30, 35, 40, 50, 55, 60],
-    }
-    df = pd.DataFrame(data)
-    plt.figure(figsize=(6,4))
-    sns.lineplot(x="Month", y="Sales", data=df, marker='o')
-    plt.title("Monthly Sales")
-    plt.tight_layout()
-    plt.show()
+# --- Base Application Class ---
+class UtilityApp(tk.Tk):
+    """Main application class for the All-In-One Python Utility App."""
 
-    fig = px.line(df, x="Month", y=["Sales", "Profit"], title="Interactive Sales vs Profit")
-    fig.write_html("interactive_dashboard.html")
-    messagebox.showinfo("Dashboard", "Interactive dashboard saved as HTML.")
+    def __init__(self):
+        super().__init__()
+        self.title("All-In-One Python Utility App")
+        self.geometry("1000x700") # Increased size for better layout
+        self.create_widgets()
 
-btn_graph = ttk.Button(frame1, text="Plot Graphs", command=plot_graphs)
-btn_graph.pack(pady=20)
+        # Global variables/references accessible across the app if needed
+        self.logo_path = None # Example: path to a logo image if used globally
 
-# ... (Rest of the code omitted for brevity, but known in context)
-�.
+    def create_widgets(self):
+        """Creates the main notebook (tabs) and adds all functionality tabs."""
+        self.tabs = ttk.Notebook(self)
+        self.tabs.pack(expand=True, fill="both", padx=10, pady=10)
+
+        # Initialize and add each tab
+        self.data_viz_tab = DataVisualizationTab(self.tabs)
+        self.image_proc_tab = ImageProcessingTab(self.tabs)
+        self.web_tools_tab = WebToolsTab(self.tabs)
+        self.nlp_ai_tab = NLPAndAITab(self.tabs) # For Blip, WordCloud
+        self.pdf_qr_tab = PDFAndQRTab(self.tabs) # For FPDF, QR Code
+        self.reddit_tab = RedditTab(self.tabs, reddit_instance=reddit) # Pass reddit instance
+
+# --- Tab Classes ---
+
+class DataVisualizationTab:
+    """Manages the Data Visualization functionality within a tab."""
+
+    def __init__(self, notebook_parent):
+        self.frame = ttk.Frame(notebook_parent)
+        notebook_parent.add(self.frame, text="📊 Data Visualization")
+        self.create_widgets()
+
+        self.df = None # To store loaded DataFrame
+
+    def create_widgets(self):
+        """Creates UI elements for the Data Visualization tab."""
+        # Frame for controls
+        control_frame = ttk.LabelFrame(self.frame, text="Data Controls")
+        control_frame.pack(pady=10, padx=10, fill="x")
+
+        btn_load_csv = ttk.Button(control_frame, text="Load CSV", command=self._load_csv_data)
+        btn_load_csv.pack(side="left", padx=5, pady=5)
+
+        btn_plot_static = ttk.Button(control_frame, text="Plot Static Graphs", command=self._plot_static_graphs)
+        btn_plot_static.pack(side="left", padx=5, pady=5)
+
+        btn_plot_interactive = ttk.Button(control_frame, text="Generate Interactive Dashboard", command=self._generate_interactive_dashboard)
+        btn_plot_interactive.pack(side="left", padx=5, pady=5)
+
+        # Frame for plots (Matplotlib embedding)
+        self.plot_frame = ttk.LabelFrame(self.frame, text="Plots")
+        self.plot_frame.pack(expand=True, fill="both", padx=10, pady=10)
+
+    def _load_csv_data(self):
+        """Opens a file dialog to load a CSV file into a DataFrame."""
+        file_path = filedialog.askopenfilename(
+            title="Select CSV File",
+            filetypes=[("CSV files", "*.csv")]
+        )
+        if file_path:
+            try:
+                self.df = pd.read_csv(file_path)
+                messagebox.showinfo("Data Loaded", f"Successfully loaded {os.path.basename(file_path)}\n"
+                                                  f"Shape: {self.df.shape}")
+                # Optional: Display first few rows in a Text widget or similar
+                # print(self.df.head())
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to load CSV: {e}")
+                self.df = None
+
+    def _plot_static_graphs(self):
+        """Plots static graphs using Matplotlib and Seaborn based on loaded data."""
+        if self.df is None:
+            messagebox.showwarning("No Data", "Please load a CSV file first.")
+            return
+
+        # Clear previous plots if any
+        for widget in self.plot_frame.winfo_children():
+            widget.destroy()
+
+        try:
+            # Example plots - you'd make these dynamic based on user selection or data types
+            if 'Sales' in self.df.columns and 'Month' in self.df.columns:
+                fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+
+                sns.lineplot(x="Month", y="Sales", data=self.df, marker='o', ax=axes[0])
+                axes[0].set_title("Monthly Sales (Static)")
+                axes[0].tick_params(axis='x', rotation=45) # Rotate labels for better readability
+
+                if 'Profit' in self.df.columns:
+                    sns.scatterplot(x="Sales", y="Profit", data=self.df, ax=axes[1])
+                    axes[1].set_title("Sales vs Profit (Static)")
+
+                plt.tight_layout()
+
+                # Embed the plot in the Tkinter window
+                canvas = FigureCanvasTkAgg(fig, master=self.plot_frame)
+                canvas_widget = canvas.get_tk_widget()
+                canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+                toolbar = NavigationToolbar2Tk(canvas, self.plot_frame)
+                toolbar.update()
+                canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+            else:
+                messagebox.showwarning("Missing Columns", "DataFrame must contain 'Month' and 'Sales' (and 'Profit' for scatter plot) columns for default plots.")
+
+        except Exception as e:
+            messagebox.showerror("Plotting Error", f"An error occurred during plotting: {e}")
+
+    def _generate_interactive_dashboard(self):
+        """Generates an interactive Plotly dashboard and saves it as HTML."""
+        if self.df is None:
+            messagebox.showwarning("No Data", "Please load a CSV file first.")
+            return
+
+        try:
+            if 'Sales' in self.df.columns and 'Month' in self.df.columns:
+                if 'Profit' in self.df.columns:
+                    fig = px.line(self.df, x="Month", y=["Sales", "Profit"],
+                                  title="Interactive Sales vs Profit Dashboard")
+                else:
+                    fig = px.line(self.df, x="Month", y="Sales",
+                                  title="Interactive Sales Dashboard")
+
+                output_html_path = "interactive_dashboard.html"
+                fig.write_html(output_html_path)
+                messagebox.showinfo("Dashboard Generated",
+                                    f"Interactive dashboard saved as {output_html_path}.\n"
+                                    "Open this file in your web browser.")
+            else:
+                messagebox.showwarning("Missing Columns", "DataFrame must contain 'Month' and 'Sales' (and 'Profit') columns for default interactive plot.")
+        except Exception as e:
+            messagebox.showerror("Dashboard Error", f"Failed to generate interactive dashboard: {e}")
+
+# --- Placeholder Classes for Other Tabs ---
+# You would expand these classes similarly to DataVisualizationTab
+
+class ImageProcessingTab:
+    """Manages Image Processing functionalities."""
+    def __init__(self, notebook_parent):
+        self.frame = ttk.Frame(notebook_parent)
+        notebook_parent.add(self.frame, text="🖼️ Image Processing")
+        self.create_widgets()
+
+    def create_widgets(self):
+        ttk.Label(self.frame, text="Image Processing features go here (e.g., resize, filters, effects)").pack(pady=20)
+        # Add buttons for load image, apply filter, save image etc.
+        # Example: ttk.Button(self.frame, text="Load Image", command=self._load_image).pack()
+
+class WebToolsTab:
+    """Manages Web related tools (e.g., Weather API)."""
+    def __init__(self, notebook_parent):
+        self.frame = ttk.Frame(notebook_parent)
+        notebook_parent.add(self.frame, text="🌐 Web Tools")
+        self.create_widgets()
+        self.city_var = StringVar()
+        self.weather_info_text = Text(self.frame, height=10, width=60, wrap=tk.WORD)
+
+
+    def create_widgets(self):
+        ttk.Label(self.frame, text="Web Tools features go here (e.g., Weather, URL Shortener)").pack(pady=20)
+
+        # Weather Widget Example
+        weather_frame = ttk.LabelFrame(self.frame, text="Weather Information")
+        weather_frame.pack(pady=10, padx=10, fill="x")
+
+        ttk.Label(weather_frame, text="Enter City:").pack(side="left", padx=5, pady=5)
+        city_entry = ttk.Entry(weather_frame, textvariable=self.city_var, width=30)
+        city_entry.pack(side="left", padx=5, pady=5)
+
+        btn_get_weather = ttk.Button(weather_frame, text="Get Weather", command=self._get_weather)
+        btn_get_weather.pack(side="left", padx=5, pady=5)
+
+        self.weather_info_text.pack(pady=10, padx=10)
+        self.weather_info_text.config(state=tk.DISABLED) # Make it read-only
+
+    def _get_weather(self):
+        """Fetches weather information using OpenWeatherMap API."""
+        city = self.city_var.get().strip()
+        if not city:
+            messagebox.showwarning("Input Error", "Please enter a city name.")
+            return
+
+        api_url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={WEATHER_API_KEY}&units=metric"
+
+        self.weather_info_text.config(state=tk.NORMAL)
+        self.weather_info_text.delete(1.0, tk.END)
+        self.weather_info_text.insert(tk.END, "Fetching weather data...\n")
+        self.weather_info_text.config(state=tk.DISABLED)
+        self.update_idletasks() # Update GUI immediately
+
+        try:
+            response = requests.get(api_url)
+            response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
+            data = response.json()
+
+            if data.get("cod") == 200:
+                main_data = data['main']
+                weather_desc = data['weather'][0]['description'].title()
+                wind_speed = data['wind']['speed']
+                city_name = data['name']
+                country = data['sys']['country']
+
+                info = (f"Weather in {city_name}, {country}:\n"
+                        f"  Temperature: {main_data['temp']}°C\n"
+                        f"  Feels Like: {main_data['feels_like']}°C\n"
+                        f"  Humidity: {main_data['humidity']}%\n"
+                        f"  Pressure: {main_data['pressure']} hPa\n"
+                        f"  Description: {weather_desc}\n"
+                        f"  Wind Speed: {wind_speed} m/s")
+                self.weather_info_text.config(state=tk.NORMAL)
+                self.weather_info_text.delete(1.0, tk.END)
+                self.weather_info_text.insert(tk.END, info)
+                self.weather_info_text.config(state=tk.DISABLED)
+            else:
+                error_message = data.get("message", "Unknown error fetching weather.")
+                self.weather_info_text.config(state=tk.NORMAL)
+                self.weather_info_text.delete(1.0, tk.END)
+                self.weather_info_text.insert(tk.END, f"Error: {error_message}\n")
+                self.weather_info_text.config(state=tk.DISABLED)
+
+        except requests.exceptions.RequestException as e:
+            self.weather_info_text.config(state=tk.NORMAL)
+            self.weather_info_text.delete(1.0, tk.END)
+            self.weather_info_text.insert(tk.END, f"Network/API Error: {e}\n"
+                                                  "Please check your internet connection or API key.\n")
+            self.weather_info_text.config(state=tk.DISABLED)
+        except Exception as e:
+            self.weather_info_text.config(state=tk.NORMAL)
+            self.weather_info_text.delete(1.0, tk.END)
+            self.weather_info_text.insert(tk.END, f"An unexpected error occurred: {e}\n")
+            self.weather_info_text.config(state=tk.DISABLED)
+
+
+class NLPAndAITab:
+    """Manages NLP and AI functionalities (e.g., WordCloud, Image Captioning)."""
+    def __init__(self, notebook_parent):
+        self.frame = ttk.Frame(notebook_parent)
+        notebook_parent.add(self.frame, text="🧠 NLP & AI")
+        self.processor = None
+        self.model = None
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.create_widgets()
+
+    def create_widgets(self):
+        ttk.Label(self.frame, text="NLP & AI features: WordCloud, Image Captioning").pack(pady=10)
+
+        # WordCloud Section
+        wordcloud_frame = ttk.LabelFrame(self.frame, text="WordCloud Generator")
+        wordcloud_frame.pack(pady=10, padx=10, fill="x")
+        ttk.Label(wordcloud_frame, text="Enter text for WordCloud:").pack(pady=5)
+        self.wordcloud_text_input = Text(wordcloud_frame, height=5, width=80)
+        self.wordcloud_text_input.pack(pady=5)
+        btn_generate_wordcloud = ttk.Button(wordcloud_frame, text="Generate WordCloud", command=self._generate_wordcloud)
+        btn_generate_wordcloud.pack(pady=5)
+
+        # Image Captioning Section (BLIP Model)
+        captioning_frame = ttk.LabelFrame(self.frame, text="Image Captioning (BLIP Model)")
+        captioning_frame.pack(pady=10, padx=10, fill="x")
+
+        ttk.Label(captioning_frame, text=f"Model will run on: {self.device.upper()}").pack(pady=5)
+
+        btn_load_blip_model = ttk.Button(captioning_frame, text="Load BLIP Model", command=self._load_blip_model)
+        btn_load_blip_model.pack(pady=5)
+
+        btn_image_captioning = ttk.Button(captioning_frame, text="Load Image & Generate Caption", command=self._generate_image_caption)
+        btn_image_captioning.pack(pady=5)
+
+        ttk.Label(captioning_frame, text="Generated Caption:").pack(pady=5)
+        self.caption_output_text = Text(captioning_frame, height=3, width=80, wrap=tk.WORD)
+        self.caption_output_text.pack(pady=5)
+        self.caption_output_text.config(state=tk.DISABLED) # Make it read-only
+
+
+    def _generate_wordcloud(self):
+        text = self.wordcloud_text_input.get(1.0, tk.END).strip()
+        if not text:
+            messagebox.showwarning("Input Error", "Please enter some text for the WordCloud.")
+            return
+
+        try:
+            wordcloud = WordCloud(width=800, height=400, background_color='white').generate(text)
+            plt.figure(figsize=(8, 4))
+            plt.imshow(wordcloud, interpolation='bilinear')
+            plt.axis('off')
+            plt.title("Generated WordCloud")
+            plt.show()
+        except Exception as e:
+            messagebox.showerror("WordCloud Error", f"Failed to generate WordCloud: {e}")
+
+    def _load_blip_model(self):
+        if self.processor is None or self.model is None:
+            try:
+                messagebox.showinfo("Loading Model", "Loading BLIP model. This may take a moment (and download files if first time)...")
+                self.update_idletasks() # Update GUI immediately to show message
+
+                self.processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
+                self.model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base").to(self.device)
+                messagebox.showinfo("Model Loaded", "BLIP model loaded successfully!")
+            except Exception as e:
+                messagebox.showerror("Model Load Error", f"Failed to load BLIP model: {e}\n"
+                                                      "Please check your internet connection and ensure 'transformers' and 'torch' are installed.")
+                self.processor = None
+                self.model = None
+        else:
+            messagebox.showinfo("Model Info", "BLIP model is already loaded.")
+
+    def _generate_image_caption(self):
+        if self.processor is None or self.model is None:
+            messagebox.showwarning("Model Not Loaded", "Please load the BLIP model first using the 'Load BLIP Model' button.")
+            return
+
+        file_path = filedialog.askopenfilename(
+            title="Select Image File",
+            filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.gif;*.bmp")]
+        )
+        if not file_path:
+            return # User cancelled
+
+        try:
+            raw_image = Image.open(file_path).convert("RGB")
+
+            # Conditional Image Captioning (optional, can be extended)
+            # text = "a photography of" # You can add a prompt to guide the caption
+            # inputs = self.processor(raw_image, text, return_tensors="pt").to(self.device)
+
+            # Unconditional Image Captioning
+            inputs = self.processor(raw_image, return_tensors="pt").to(self.device)
+
+            out = self.model.generate(**inputs)
+            caption = self.processor.decode(out[0], skip_special_tokens=True)
+
+            self.caption_output_text.config(state=tk.NORMAL)
+            self.caption_output_text.delete(1.0, tk.END)
+            self.caption_output_text.insert(tk.END, caption)
+            self.caption_output_text.config(state=tk.DISABLED)
+
+        except FileNotFoundError:
+            messagebox.showerror("Image Error", "Selected file not found.")
+        except Exception as e:
+            messagebox.showerror("Captioning Error", f"An error occurred during image captioning: {e}")
+            self.caption_output_text.config(state=tk.NORMAL)
+            self.caption_output_text.delete(1.0, tk.END)
+            self.caption_output_text.insert(tk.END, f"Error: {e}")
+            self.caption_output_text.config(state=tk.DISABLED)
+
+
+class PDFAndQRTab:
+    """Manages PDF generation and QR code creation."""
+    def __init__(self, notebook_parent):
+        self.frame = ttk.Frame(notebook_parent)
+        notebook_parent.add(self.frame, text="📄 PDF & QR")
+        self.create_widgets()
+
+    def create_widgets(self):
+        ttk.Label(self.frame, text="PDF Generation and QR Code features go here").pack(pady=20)
+
+        # QR Code Generator
+        qr_frame = ttk.LabelFrame(self.frame, text="QR Code Generator")
+        qr_frame.pack(pady=10, padx=10, fill="x")
+
+        ttk.Label(qr_frame, text="Enter text/URL for QR:").pack(side="left", padx=5, pady=5)
+        self.qr_data_entry = ttk.Entry(qr_frame, width=50)
+        self.qr_data_entry.pack(side="left", padx=5, pady=5)
+        btn_generate_qr = ttk.Button(qr_frame, text="Generate QR Code", command=self._generate_qr_code)
+        btn_generate_qr.pack(side="left", padx=5, pady=5)
+
+        # PDF Generator
+        pdf_frame = ttk.LabelFrame(self.frame, text="PDF Generator")
+        pdf_frame.pack(pady=10, padx=10, fill="x")
+        ttk.Label(pdf_frame, text="Enter text for PDF:").pack(side="left", padx=5, pady=5)
+        self.pdf_text_input = Text(pdf_frame, height=5, width=60)
+        self.pdf_text_input.pack(side="left", padx=5, pady=5)
+        btn_generate_pdf = ttk.Button(pdf_frame, text="Generate PDF", command=self._generate_pdf)
+        btn_generate_pdf.pack(side="left", padx=5, pady=5)
+
+    def _generate_qr_code(self):
+        data = self.qr_data_entry.get().strip()
+        if not data:
+            messagebox.showwarning("Input Error", "Please enter data for the QR code.")
+            return
+
+        try:
+            qr_img = qrcode.make(data)
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".png",
+                filetypes=[("PNG files", "*.png")],
+                title="Save QR Code Image"
+            )
+            if file_path:
+                qr_img.save(file_path)
+                messagebox.showinfo("QR Code Saved", f"QR Code saved successfully to {file_path}")
+        except Exception as e:
+            messagebox.showerror("QR Code Error", f"Failed to generate or save QR code: {e}")
+
+    def _generate_pdf(self):
+        text_content = self.pdf_text_input.get(1.0, tk.END).strip()
+        if not text_content:
+            messagebox.showwarning("Input Error", "Please enter text for the PDF.")
+            return
+
+        try:
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Arial", size=12)
+            pdf.multi_cell(0, 10, text_content)
+
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".pdf",
+                filetypes=[("PDF files", "*.pdf")],
+                title="Save PDF Document"
+            )
+            if file_path:
+                pdf.output(file_path)
+                messagebox.showinfo("PDF Saved", f"PDF generated successfully to {file_path}")
+        except Exception as e:
+            messagebox.showerror("PDF Error", f"Failed to generate or save PDF: {e}")
+
+class RedditTab:
+    """Manages Reddit functionalities."""
+    def __init__(self, notebook_parent, reddit_instance):
+        self.frame = ttk.Frame(notebook_parent)
+        notebook_parent.add(self.frame, text=" Reddit")
+        self.reddit = reddit_instance # Pass the initialized praw.Reddit instance
+        self.subreddit_var = StringVar(value="python")
+        self.posts_text = Text(self.frame, height=20, width=80, wrap=tk.WORD)
+        self.create_widgets()
+
+    def create_widgets(self):
+        ttk.Label(self.frame, text="Reddit features go here (e.g., fetch posts from subreddit)").pack(pady=20)
+
+        reddit_frame = ttk.LabelFrame(self.frame, text="Fetch Subreddit Posts")
+        reddit_frame.pack(pady=10, padx=10, fill="x")
+
+        ttk.Label(reddit_frame, text="Subreddit: r/").pack(side="left", padx=5, pady=5)
+        subreddit_entry = ttk.Entry(reddit_frame, textvariable=self.subreddit_var, width=20)
+        subreddit_entry.pack(side="left", padx=5, pady=5)
+
+        btn_fetch_posts = ttk.Button(reddit_frame, text="Fetch Top Posts", command=self._fetch_top_posts)
+        btn_fetch_posts.pack(side="left", padx=5, pady=5)
+
+        self.posts_text.pack(pady=10, padx=10)
+        self.posts_text.config(state=tk.DISABLED)
+
+    def _fetch_top_posts(self):
+        if not self.reddit:
+            messagebox.showerror("Reddit Error", "Reddit API not initialized. Check your credentials.")
+            return
+
+        subreddit_name = self.subreddit_var.get().strip()
+        if not subreddit_name:
+            messagebox.showwarning("Input Error", "Please enter a subreddit name.")
+            return
+
+        self.posts_text.config(state=tk.NORMAL)
+        self.posts_text.delete(1.0, tk.END)
+        self.posts_text.insert(tk.END, f"Fetching top posts from r/{subreddit_name}...\n")
+        self.posts_text.config(state=tk.DISABLED)
+        self.update_idletasks()
+
+        try:
+            subreddit = self.reddit.subreddit(subreddit_name)
+            posts_count = 0
+            for submission in subreddit.top(limit=10): # Fetch top 10 posts
+                self.posts_text.config(state=tk.NORMAL)
+                self.posts_text.insert(tk.END, f"--- Title: {submission.title} ---\n")
+                self.posts_text.insert(tk.END, f"  Upvotes: {submission.score}\n")
+                self.posts_text.insert(tk.END, f"  URL: {submission.url}\n\n")
+                self.posts_text.config(state=tk.DISABLED)
+                posts_count += 1
+            if posts_count == 0:
+                self.posts_text.config(state=tk.NORMAL)
+                self.posts_text.insert(tk.END, "No posts found or subreddit does not exist/is private.\n")
+                self.posts_text.config(state=tk.DISABLED)
+
+        except Exception as e:
+            self.posts_text.config(state=tk.NORMAL)
+            self.posts_text.delete(1.0, tk.END)
+            self.posts_text.insert(tk.END, f"Error fetching Reddit posts: {e}\n"
+                                          "Please check subreddit name or API access.\n")
+            self.posts_text.config(state=tk.DISABLED)
+
+
+# --- Main Application Execution ---
+if __name__ == "__main__":
+    app = UtilityApp()
+    app.mainloop()
