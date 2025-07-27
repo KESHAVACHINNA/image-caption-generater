@@ -1,0 +1,58 @@
+
+import os
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox, Text, StringVar
+from PIL import Image, ImageTk
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.express as px
+import cv2
+import requests
+from fpdf import FPDF
+from wordcloud import WordCloud
+from transformers import BlipProcessor, BlipForConditionalGeneration
+import qrcode
+import praw
+
+# ---- Global Variables ----
+logo_path = None
+weather_api_key = '3434037233ac86f7ad772ec6f5892e4a'
+reddit = praw.Reddit(client_id='XklaFB2839fVxoJ7jrOlIQ',
+                     client_secret='WyTB6nDQUvrEB0KiDnw-eOTMqzMZcg',
+                     user_agent='my_bot_v1_pristine123')
+
+# ---- App Window ----
+root = tk.Tk()
+root.title("All-In-One Python Utility App")
+root.geometry("800x600")
+tabs = ttk.Notebook(root)
+tabs.pack(expand=1, fill="both")
+
+# === 1. Data Visualization Tab ===
+frame1 = ttk.Frame(tabs)
+tabs.add(frame1, text="📊 Data Visualization")
+
+def plot_graphs():
+    data = {
+        "Month": ["January", "February", "March", "April", "May", "June"],
+        "Sales": [200, 220, 250, 280, 300, 320],
+        "Profit": [50, 70, 80, 90, 100, 110],
+        "Customer_Count": [30, 35, 40, 50, 55, 60],
+    }
+    df = pd.DataFrame(data)
+    plt.figure(figsize=(6,4))
+    sns.lineplot(x="Month", y="Sales", data=df, marker='o')
+    plt.title("Monthly Sales")
+    plt.tight_layout()
+    plt.show()
+
+    fig = px.line(df, x="Month", y=["Sales", "Profit"], title="Interactive Sales vs Profit")
+    fig.write_html("interactive_dashboard.html")
+    messagebox.showinfo("Dashboard", "Interactive dashboard saved as HTML.")
+
+btn_graph = ttk.Button(frame1, text="Plot Graphs", command=plot_graphs)
+btn_graph.pack(pady=20)
+
+# ... (Rest of the code omitted for brevity, but known in context)
+�.
