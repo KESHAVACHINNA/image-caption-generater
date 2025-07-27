@@ -1,9 +1,7 @@
-gunicorn
-flask
+streamlit
 matplotlib
 seaborn
 pandas
-torch
 numpy
 plotly
 opencv-python
@@ -13,4 +11,4 @@ Pillow
 wordcloud
 qrcode
 praw
-streamlit
+torch
